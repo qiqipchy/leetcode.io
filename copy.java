@@ -53,6 +53,7 @@ public class Solution {
 				solveRec(board, i + 1, 0, flag);
 			} else
 				solveRec(board, i, j + 1, flag);
+return;
 		}
 		for (int k = 0; k < visit[i].length; k++) {
 			if (flag)

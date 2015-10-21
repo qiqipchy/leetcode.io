@@ -1,6 +1,7 @@
 import java.util.Arrays;
 
 public class Solution {
+	//求的叫做数根
 	public int addDigits(int num) {
 		int sum = 0;
 		while (true) {

@@ -204,7 +204,7 @@ form中内容为空时，不在solr index doc中添加相应的字段；
 * 按列排序：
     
 ** 获取用户想要排序字段的fid以及排序的次序order[desc,asc]，得到该fid下的最大拓展次数max，
-构建查询url: sort=field_dataType_fid_1 order,field_dataType_fid_1 order,……,field_dataType_fid_max order
+构建查询url: sort=field_dataType_fid_1 order,field_dataType_fid_2 order,……,field_dataType_fid_max order
 
 * 最后的问题:对中文,中英混合的排序支持
 

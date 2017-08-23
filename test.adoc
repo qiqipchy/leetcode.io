@@ -1,0 +1,211 @@
+:toc: left
+:toclevels: 3
+:toc-title: 目录
+= Solr设计文档
+吴渊渊
+v1.0， 2017-08-17
+:numbered:
+== 基本设计方案
+
+搜索内容为叶节点中的内容，所以将整个form中的数据jsondata平铺为一个doc用以index进行之后的搜索；方面进行多字段之间的联合查找
+
+=== solr基本介绍
+* solr使用inverted index进行文档的搜索；存储的是term和对应的docId，以term为中心；如图所示：
+
+
+[#img-inverted index]
+.inverted index
+[link=https://github.com/qiqipchy/dbc.docs/blob/master/images/inverted%20index.png?raw=true]
+image::inverted index.jpg[inverted-index，300，200]
+
+* 将原始doc存储为inverted index的过程成为index，查询的过程称为query；
+
+* 用于index中每一个doc由field组成，每一个field都特定的fieldType，决定其中的数据怎么解析，存储以及搜索.它们都必须在schema.xml进行定义；
+
+* Schema.xml用于将doc映射为可检索的Luence index.其中含有可能会用到的field和field types
+
+* fieldType主要负责对原始文件进行text analysis(比如说设定分词器，设定转小写过滤器等)生成index，并对想要query的text进行analysisy；主要集中在<analyzer>元素设计；
+
+* 整个index流程如下：
+
+[#img-index process]
+.index process
+[link=https://github.com/qiqipchy/dbc.docs/blob/master/images/solr%20index.png?raw=true]
+image::index process.jpg[index process，300，200]
+
+* 因此建立solr应用的步骤为
+
+- 1:确定schema.xml中的field和fieldType；
+
+- 2:根据field和fieldType将产品数据转换为符合SolrXML格式的doc；
+
+- 3:将2中的doc加入到solr服务器中，完成index的建立；
+
+- 4:解析用户搜索，建立用于solr搜索的url；
+
+- 5:发出搜索请求，得到相应；
+
+=== 设计内容
+
+==== field确定
+
+* 由于用户可自我设计字段名称，因此在solr index中doc的字段field的名称基本格式为field_fid，查询存储都比较简洁；
+
+* 由于产品中的数据可以进行拓展，所以为标记搜索每一条数据，将field_vid进一步拓展成为field_fid_vidOrder；
+
+* 由于产品中每个form的field id不同，总数不同，其中的拓展也不同，同时也为了按列排序，因此将field_fid_vidOrder设计成为dynamicField类型，也就是field_*；
+
+* 不同的fieldType代表了在index和query的过程中进行不同的处理操作，因此根据产品的基本字段类型，将field_fid进一步分为几大类，field_text_fid，field_double_fid，field_boolean_fid，field_list_fid，field_coord_fid；
+
+- 也就是field_text_*，field_double_*，field_boolean_*，field_list_*，field_coord_*；
+
+* 在query的时候，由于最后只需返回solr index doc中的id，所以field全部设置为stored=false；
+
+* field可能需要进行排序等高级操作，所以设置为index=true；
+
+==== fieldType的确定
+
+对field_text_*，field_double_*，field_boolean_*，field_list_*进行fieldType的确认，目前的基本方案为：
+
+* field_text_*:
+```xml
+<dynamicField name="field_text_*" type="text_general_rev" indexed="true" stored="false"/>
+```
+```xml
+- 注：com.chenlb.mmseg4j.solr.MMSegTokenizerFactor：中文分词器；
+
+<fieldType name="text_general_rev" class="solr.TextField" positionIncrementGap="100">
+    <analyzer type="index">
+        <tokenizer class="com.chenlb.mmseg4j.solr.MMSegTokenizerFactory"/>
+        <filter class="solr.StopFilterFactory" words="stopwords.txt" ignoreCase="true"/>
+        <filter class="solr.LowerCaseFilterFactory"/>
+        <filter class="solr.ReversedWildcardFilterFactory" maxPosQuestion="2" maxFractionAsterisk="0.33" maxPosAsterisk="3" withOriginal="true"/>
+    </analyzer>
+    <analyzer type="query">
+        <tokenizer class="com.chenlb.mmseg4j.solr.MMSegTokenizerFactory"/>
+        <filter class="solr.SynonymGraphFilterFactory" expand="true" ignoreCase="true" synonyms="synonyms.txt"/>
+        <filter class="solr.StopFilterFactory" words="stopwords.txt" ignoreCase="true"/>
+        <filter class="solr.LowerCaseFilterFactory"/>
+    </analyzer>
+</fieldType>
+```
+
+* field_double_*:
+```xml
+<dynamicField name="field_double_*" type="double" indexed="true" stored="false"/>
+```
+```xml
+<fieldType name="double" class="solr.TrieDoubleField" positionIncrementGap="0" docValues="true" precisionStep="0"/>
+```
+* field_boolean_*:
+```xml
+<dynamicField name="field_boolean_*" type="boolean" indexed="true" stored="false"/>
+```
+```xml
+<fieldType name="boolean" class="solr.BoolField" sortMissingLast="true"/>
+```
+* field_list_*:
+```xml
+<dynamicField name="field_list_*" type="int" indexed="true" stored="true"/>
+```
+```xml
+<fieldType name="int" class="solr.TrieIntField" positionIncrementGap="0" docValues="true" precisionStep="0"/>
+```
+* 注：field_coord_*还在设计中
+
+=== solr index doc的整体结构
+* 含有唯一标识id，为formdata中每个值的id；
+
+* 不同表之间fid可能重合，例如对form１进行query：[field_text_13:slor]，可能在form２中也存在field_text_13含有slor，从而造成返回结果错误；为区别不同的form，在solr index doc中记录一个baseId；
+
+* 最后添加一个createDate，因此完整的表结构如下所示.
+
+
+=== 例子
+
+* 对应到产品中的具体数据：将field_dataType_*确定为field_dataType_fid_vidOrder
+
+```json
+"value": {
+        "3": {
+          "fid": 7，
+          "path": {
+            "7": 1
+          }，
+          "vid": 3，
+          "value": {
+            "zh": "The daily show S01"
+          }
+        }，
+        "14": {
+          "fid": 7，
+          "path": {
+            "7": 2
+          }，
+          "vid": 14，
+          "value": {
+            "zh": "The daily show S02"
+          }
+        }，
+        "15": {
+          "fid": 7，
+          "path": {
+            "7": 3
+          }，
+          "vid": 15，
+          "value": {
+            "zh": "The daily show S03"
+          }
+        }
+      }
+```
+在该例中，fid为7的字段拓展了3次，分别为vid:3 value:The daily show S01，vid:14 value:The daily show S02，vid:15 value:The daily show S02.在solr中的存储为：
+
+```xml
+<field name="field_text_7_1>The daily show S01</field>
+<field name="field_text_7_2>The daily show S02</field>
+<field name="field_text_7_3>The daily show S03</field>
+```
+=== 备注
+form中内容为空时，不在solr index doc中添加相应的字段；
+
+多语言的存储，在jsondata中的map结构[en="solr"]改为solr index doc中的单文本:solr，不再存储为一个map；
+
+== Advanced设计
+
+* 主要针对产品需要按列排序的要求，对field的基本结构进行调整。
+
+=== 排序可能涉及到的field
+
+* 需要排序的字段可能设计到field_double_*和field_text_*,这两种排序基本上是有意义的;
+
+=== 详细说明
+
+* 若对用户的原始输入数据进行排序,需要设置一个额外的field记录原始的值(field设置为string类型,不进行分词),否则排序的是对输入数据分词之后的结果.跟
+原始数据的排序是有出入的.
+
+* 因此对于每一个field_text_fid_vidOrder,设定额外的field_textCopy_fid_vidOrder,对于field_textCopy_fid_vidOrder的定义有:
+
+```xml
+<dynamicField name="field_textCopy_*" type="string" indexed="true" stored="false"/>
+```
+```xml
+<fieldType name="string" class="solr.StrField" sortMissingLast="true" />
+```
+* 需要对之前的double类型定义进行修改，添加sortMissingLast="true"
+
+```xml
+<dynamicField name="field_double_*" type="double" indexed="true" stored="false"/>
+```
+```xml
+<fieldType name="double" class="solr.TrieDoubleField" positionIncrementGap="0" docValues="true" precisionStep="0"/>
+```
+
+* 按列排序：
+    
+** 获取用户想要排序字段的fid以及排序的次序order[desc,asc]，得到该fid下的最大拓展次数max，
+构建查询url: sort=field_dataType_fid_1 order,field_dataType_fid_1 order,……,field_dataType_fid_max order
+
+* 最后的问题:对中文,中英混合的排序支持
+
+  ** Solr中默认的是按照unicode字符集进行排序,英文永远在汉语之前;

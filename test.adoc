@@ -209,3 +209,7 @@ form中内容为空时，不在solr index doc中添加相应的字段；
 * 最后的问题:对中文,中英混合的排序支持
 
   ** Solr中默认的是按照unicode字符集进行排序,英文永远在汉语之前;
+  
+== 说明
+
+* 为测试方便，现在的field都是设置的是stored=true，最后肯定是要改为stored=false的；

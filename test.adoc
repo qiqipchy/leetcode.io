@@ -2,7 +2,7 @@
 :toclevels: 3
 :toc-title: 目录
 = Solr设计文档
-吴渊渊
+吴渊渊  吴渊渊
 v1.0， 2017-08-17
 :numbered:
 == 基本设计方案
